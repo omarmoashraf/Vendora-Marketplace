@@ -145,7 +145,7 @@ Before starting, understand:
 **What I Need to Know Before Coding**
 - Maven basics (dependencies, plugins) — MUST UNDERSTAND
 - Spring Boot project structure & `@SpringBootApplication` — MUST UNDERSTAND
-- Spring profiles (`application-local.yml` vs `application-prod.yml`) — SHOULD UNDERSTAND
+- Spring profiles (`application-dev.yml` vs `application-prod.yml`) — SHOULD UNDERSTAND
 - Flyway migration file naming/versioning — MUST UNDERSTAND
 - Docker Compose for local PostgreSQL — SHOULD UNDERSTAND
 
@@ -163,7 +163,7 @@ Don't study yet:
 - Docker multi-stage builds (full Docker is Stage 19; a simple compose file for local Postgres is enough now)
 ```
 
-**Implementation Task**: Initialize the Maven project with the module package skeleton from `FOLDER_STRUCTURE.md` §1–2 (empty packages are fine). Add a `docker-compose.yml` with only a PostgreSQL service for local development. Wire `application-local.yml` to that database. Add an empty Flyway migration `V1__init.sql` (even just a comment) to prove the pipeline runs. Confirm the app starts and connects.
+**Implementation Task**: Initialize the Maven project with the module package skeleton from `FOLDER_STRUCTURE.md` §1–2 (empty packages are fine). Add a `docker-compose.yaml` with only a PostgreSQL service for local development. Wire `application-dev.yml` to that database. Add an empty Flyway migration `V1__init.sql` (even just a comment) to prove the pipeline runs. Confirm the app starts and connects.
 
 **Engineering Problems to Encounter**: misconfigured datasource URL; Flyway failing on an empty/malformed migration; profile not being picked up.
 

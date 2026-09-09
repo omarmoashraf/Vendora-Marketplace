@@ -59,7 +59,7 @@ PostgreSQL (Single System of Record with Flyway Migrations)
 | Layer | Technology |
 |---|---|
 | **Runtime & Language** | Java 21 |
-| **Framework** | Spring Boot 4.x (WebMVC, Validation, Data JPA) |
+| **Framework** | Spring Boot 4.x / 3.x (WebMVC, Validation, Data JPA) |
 | **Database & Migrations**| PostgreSQL 15+, Flyway |
 | **Security** | Spring Security, stateless JWT (short-lived access + rotated refresh tokens), BCrypt |
 | **Persistence & ORM** | Hibernate / Spring Data JPA with optimistic locking (`@Version`) |
@@ -88,6 +88,7 @@ Vendora/
 │   │   ├── java/com/omar/vendora/
 │   │   │   ├── common/          # Cross-cutting utilities, base exceptions, pagination
 │   │   │   ├── config/          # Spring beans, security filter chain, OpenAPI
+│   │   │   ├── security/        # JWT utilities, authentication filters, principal resolution
 │   │   │   ├── identity/        # Auth mechanics, JWT handling, credentials
 │   │   │   ├── users/           # User profiles, addresses, account status
 │   │   │   ├── sellers/         # Seller applications, profiles, suspension
@@ -106,9 +107,13 @@ Vendora/
 │   │   │   ├── notifications/   # In-app notifications and async email dispatch
 │   │   │   └── admin/           # Administrative orchestration endpoints
 │   │   └── resources/
-│   │       ├── application.yaml # Core application configuration
-│   │       └── db/migration/    # Flyway versioned SQL scripts
+│   │       ├── application.yaml     # Core application configuration & profiles
+│   │       ├── application-dev.yml  # Development profile configuration
+│   │       ├── application-prod.yml # Production profile configuration
+│   │       └── db/migration/        # Flyway versioned SQL scripts
 │   └── test/                    # Unit, integration, and concurrency tests
+├── docker-compose.yaml          # Local PostgreSQL development container
+├── .env.example                 # Example environment variables template
 ├── pom.xml                      # Maven build descriptor
 └── README.md                    # Project overview and quickstart
 ```
@@ -121,7 +126,7 @@ The complete API specification is defined in [docs/API_CONTRACT.md](docs/API_CON
 
 ### Conventions
 - **Base URL:** `/v1/...`
-- **Format:** JSON (`Content-Type: application/json`)
+- **Format:** JSON (`Content-Type: application/json`)\
 - **Authentication:** `Authorization: Bearer <access_token>`
 - **Identifiers:** UUID strings
 - **Monetary Values:** Fixed-point string decimals (e.g., `"24.99"`) to eliminate wire precision issues
@@ -175,7 +180,7 @@ Detailed specifications and architectural guides are located in the `docs/` fold
 ### Prerequisites
 
 - **Java:** JDK 21+
-- **Database:** PostgreSQL 15+
+- **Database:** PostgreSQL 15+ (or Docker)
 - **Build Tool:** Maven 3.9+ (or use the bundled `./mvnw`)
 
 ### Local Setup
@@ -186,18 +191,25 @@ Detailed specifications and architectural guides are located in the `docs/` fold
    cd Vendora
    ```
 
-2. **Configure PostgreSQL:**
-   Ensure PostgreSQL is running and create the target database:
+2. **Start Database via Docker Compose (Recommended):**
+   Copy the example environment file and start the PostgreSQL container:
+   ```bash
+   cp .env.example .env
+   docker compose up -d
+   ```
+   *Alternatively, if using an existing local PostgreSQL instance, create the database manually:*
    ```sql
    CREATE DATABASE vendora;
    ```
 
-3. **Configure Environment:**
-   Adjust `src/main/resources/application.yaml` or set environment variables:
+3. **Configure Environment Variables (Optional):**
+   The application defaults in `application-dev.yml` will automatically connect to `localhost:5432/vendora` with user `postgres` and password `postgres`. If customized, export:
    ```bash
-   export SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5432/vendora
-   export SPRING_DATASOURCE_USERNAME=postgres
-   export SPRING_DATASOURCE_PASSWORD=postgres
+   export POSTGRES_DB=vendora
+   export DB_USER=postgres
+   export DB_PASSWORD=postgres
+   export DB_HOST=localhost
+   export DB_PORT=5432
    ```
 
 4. **Build and Run:**
@@ -220,3 +232,19 @@ Detailed specifications and architectural guides are located in the `docs/` fold
 - **Order Item Snapshotting:** Order items retain purchase-time product name, variant attributes, and unit price, preserving historical financial integrity even if products are edited or deleted later.
 - **Idempotent Operations:** Mutating financial endpoints accept `Idempotency-Key` headers, and webhook endpoints de-duplicate events using unique provider transaction identifiers.
 - **Audit-Safe Balance Ledger:** Seller balances are backed by discrete ledger entries (credit, debit, commission deduction) to ensure transparent financial reconciliation.
+
+---
+
+## Contributing & License
+
+### Contributing
+
+1. Create a feature branch (`git checkout -b feature/amazing-feature`).
+2. Follow the architectural boundaries defined in [docs/FOLDER_STRUCTURE.md](docs/FOLDER_STRUCTURE.md) and coding conventions.
+3. Verify that all unit, integration, and concurrency tests pass (`./mvnw test`).
+4. Commit your changes with clear semantic commit messages.
+5. Push to the branch and open a Pull Request.
+
+### License
+
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.

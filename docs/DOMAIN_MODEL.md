@@ -16,13 +16,14 @@ Describes the business concepts, aggregate boundaries, invariants, and state mac
 | SellerOrder | OrderItems, Shipment | Seller (fulfillment), CustomerOrder (belongs to) |
 | Payment | — | CustomerOrder |
 | Refund | — | Payment, ReturnRequest |
-| ReturnRequest | — | SellerOrder / OrderItem |
+| ReturnRequest | ReturnRequestItems | SellerOrder / Customer |
 | Coupon | CouponRedemption records | Marketplace (Admin) |
 | Review | — | Customer, Product |
 | Wishlist | WishlistItems | Customer |
 | Notification | — | User |
 | SellerBalance | LedgerEntries | Seller |
 | Payout | — | Seller, SellerBalance |
+| MarketplaceSettings | Setting key-value entries | Marketplace (Admin) |
 
 Products are not converted 1:1 into DB tables blindly — e.g., "Product Media" is a value-object-like collection, not a heavyweight aggregate; "Ledger Entry" exists specifically to make SellerBalance auditable rather than a single mutable counter.
 
@@ -30,7 +31,7 @@ Products are not converted 1:1 into DB tables blindly — e.g., "Product Media" 
 
 - **User** (Entity): identity, credentials, role flags (Customer/Seller/Admin capability), account state (Active/Suspended).
 - **SellerApplication** (Entity): submitted business info, status (Pending/Approved/Rejected), decision metadata.
-- **SellerProfile** (Entity): the "Seller" identity once approved; independent suspension state from the underlying User.
+- **SellerProfile** (Entity): the "Seller" identity once approved; payout destination details; independent suspension state from the underlying User.
 - **Address** (Value Object): name, line1/2, city, region, postal code, country, phone — used by both User addresses and guest checkout.
 - **Product** (Aggregate Root): name, description, category refs, owning Seller, status (Published/Hidden/Removed).
 - **ProductVariant** (Entity within Product): attribute descriptor (e.g., color/size), price, stock quantity, SKU.
@@ -42,16 +43,18 @@ Products are not converted 1:1 into DB tables blindly — e.g., "Product Media" 
 - **OrderItem** (Entity): purchase-time snapshot (product name, variant descriptor, unit price, quantity) — immutable after creation.
 - **Payment** (Aggregate Root): method (COD/Online), state machine, linked to CustomerOrder.
 - **Refund** (Entity): amount, reason, linked Payment and optional ReturnRequest.
-- **ReturnRequest** (Aggregate Root): linked OrderItem(s)/SellerOrder, state machine.
+- **ReturnRequest** (Aggregate Root): linked SellerOrder, collection of ReturnRequestItems, state machine.
+- **ReturnRequestItem** (Entity within ReturnRequest): references OrderItem, quantity returned, calculated refund amount.
 - **Shipment** (Entity within SellerOrder): fulfillment mode (Marketplace/Seller), tracking info, status.
 - **Coupon** (Aggregate Root): code, discount type/value, expiry, usage limits.
 - **CouponRedemption** (Entity): links Coupon to CustomerOrder/User, prevents double-count.
 - **Review** (Aggregate Root): rating, text, linked verified purchase (OrderItem reference).
 - **Wishlist / WishlistItem** (Aggregate Root / Entity): Customer-owned product references.
-- **Notification** (Entity): type, payload, read state, channel (in-app/email).
+- **Notification** (Entity): type, payload, read state, channel (in-app/email), delivery status (outbox pattern tracking).
 - **SellerBalance** (Aggregate Root): available balance, derived from LedgerEntries.
 - **LedgerEntry** (Entity): type (Sale Credit / Refund Debit / Payout Debit), amount, reference to source (SellerOrder/Refund/Payout).
 - **Payout** (Aggregate Root): requested amount, state machine, linked SellerBalance.
+- **MarketplaceSettings** (Entity): dynamic platform parameters (return window days, commission rate) manageable by Admin.
 
 ## 4. Key Invariants
 1. A CustomerOrder always has ≥1 SellerOrder, and each SellerOrder belongs to exactly one Seller.
@@ -62,6 +65,7 @@ Products are not converted 1:1 into DB tables blindly — e.g., "Product Media" 
 6. A Payout can never exceed the SellerBalance's available amount at the time it is processed.
 7. Suspending a User or SellerProfile changes only capability/state flags — it never mutates or removes historical Orders, Payments, Payouts, or Reviews.
 8. Commission percentage is read from configuration at the time of SellerOrder settlement, not embedded as a literal in code.
+9. A ReturnRequest must contain at least one ReturnRequestItem, and returned quantity per item cannot exceed original purchased quantity minus previously returned quantities.
 
 ## 5. Domain Events (where justified)
 - `SellerApplicationApproved` / `SellerApplicationRejected`
@@ -72,7 +76,7 @@ Products are not converted 1:1 into DB tables blindly — e.g., "Product Media" 
 - `RefundIssued`
 - `PayoutRequested` / `PayoutCompleted` / `PayoutFailed`
 
-These events back the Notification module's fan-out (in-app + async email) without coupling Ordering/Payments/Payouts modules directly to Notification internals.
+These events back the Notification module's fan-out (in-app + async email via transactional outbox) without coupling Ordering/Payments/Payouts modules directly to Notification internals.
 
 ## 6. Diagrams
 
@@ -94,6 +98,8 @@ erDiagram
     CUSTOMER_ORDER ||--o{ PAYMENT : "paid via"
     PAYMENT ||--o{ REFUND : "may have"
     SELLER_ORDER ||--o{ RETURN_REQUEST : "may have"
+    RETURN_REQUEST ||--|{ RETURN_REQUEST_ITEM : contains
+    ORDER_ITEM ||--o{ RETURN_REQUEST_ITEM : "returned in"
     SELLER_PROFILE ||--|| SELLER_BALANCE : has
     SELLER_BALANCE ||--o{ LEDGER_ENTRY : records
     SELLER_PROFILE ||--o{ PAYOUT : requests

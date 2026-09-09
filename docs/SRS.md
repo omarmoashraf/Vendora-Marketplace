@@ -83,7 +83,7 @@ Detailed per-domain requirements are in sections 8–28. Requirement IDs use the
 - **FR-PAY-002**: COD orders do not require a payment gateway and are marked as pending collection.
 - **FR-PAY-003**: Online payments follow an intent → confirmation lifecycle; final state is derived from provider webhook, not solely from the client callback.
 - **FR-PAY-004**: Payment webhook processing must be idempotent (duplicate webhook deliveries must not double-apply effects).
-- **FR-PAY-005**: Failed payments must leave the Order in a state that allows retry or cancellation, without corrupting inventory reservations.
+- **FR-PAY-005**: Failed payments must leave the Order in a state that allows retry or cancellation, and order cancellation must restore any decremented stock atomically without corrupting inventory totals.
 - **FR-PAY-006**: Refunds are modeled as a distinct entity linked to a Payment and (optionally) a Return Request.
 
 ## 17. Shipping Requirements

@@ -7,7 +7,7 @@ JSON request/response bodies (`Content-Type: application/json`). Timestamps are 
 `https://api.marketplace.example/v1/...` — all resource paths below are relative to this base.
 
 ## 3. Authentication
-`Authorization: Bearer <access_token>` (JWT). Guest endpoints omit this header; guest checkout instead identifies the cart via `X-Guest-Session` header or a guest session cookie.
+`Authorization: Bearer <access_token>` (JWT). Guest endpoints omit this header; guest cart interactions identify the cart via `X-Guest-Session` header or cookie. After guest checkout, unauthenticated retrieval of orders and related resources uses the signed `X-Guest-Lookup-Token` header.
 
 ## 4. Authorization
 Endpoints marked **Role: Customer/Seller/Admin** require the corresponding capability claim in the JWT. Ownership-scoped endpoints (e.g., a Seller's own product) additionally verify the resource belongs to the caller.
@@ -15,11 +15,11 @@ Endpoints marked **Role: Customer/Seller/Admin** require the corresponding capab
 ## 5. Error Format
 ```json
 {
-  "error": {
-    "code": "INSUFFICIENT_STOCK",
-    "message": "Requested quantity exceeds available stock.",
-    "details": [{ "field": "items[0].quantity", "issue": "max_available=2" }],
-    "correlationId": "b3e1f7b2-..."
+  \"error\": {
+    \"code\": \"INSUFFICIENT_STOCK\",
+    \"message\": \"Requested quantity exceeds available stock.\",
+    \"details\": [{ \"field\": \"items[0].quantity\", \"issue\": \"max_available=2\" }],
+    \"correlationId\": \"b3e1f7b2-...\"
   }
 }
 ```
@@ -56,6 +56,8 @@ Mutating financial/checkout endpoints accept an `Idempotency-Key` header; the se
 | POST | `/auth/login` | Login, issue access+refresh tokens | None | — |
 | POST | `/auth/refresh` | Exchange refresh token for new access token | None (refresh token in body) | — |
 | POST | `/auth/logout` | Revoke refresh token | Bearer | Any |
+| POST | `/auth/password-reset/request` | Request password reset token / link | None | — |
+| POST | `/auth/password-reset/confirm` | Reset password using verified token | None | — |
 
 **POST /auth/login**
 Request:
@@ -67,6 +69,26 @@ Response `200`:
 { "accessToken": "...", "refreshToken": "...", "expiresIn": 900 }
 ```
 Business rules: rate-limited; generic error on bad credentials (no user-existence leak).
+
+**POST /auth/password-reset/request**
+Request:
+```json
+{ "email": "user@example.com" }
+```
+Response `200`:
+```json
+{ "message": "If the email is registered, a password reset link has been dispatched." }
+```
+
+**POST /auth/password-reset/confirm**
+Request:
+```json
+{ "token": "reset-token-xyz", "newPassword": "NewSecurePassword123!" }
+```
+Response `200`:
+```json
+{ "message": "Password successfully reset. Please log in with your new credentials." }
+```
 
 ### Users
 | Method | Path | Purpose | Auth | Role |
@@ -184,8 +206,8 @@ Response `409` if requested quantity exceeds current stock.
 |---|---|---|---|---|
 | POST | `/orders/checkout` | Create Customer Order from Cart | Optional (guest or Customer) | — |
 | GET | `/orders` | List own orders | Bearer | Customer |
-| GET | `/orders/{id}` | Order detail (incl. seller orders) | Bearer or guest token | — |
-| POST | `/orders/{id}/seller-orders/{sellerOrderId}/cancel` | Cancel eligible seller order | Bearer or guest token | Customer/Guest owner |
+| GET | `/orders/{id}` | Order detail (incl. seller orders) | Bearer or `X-Guest-Lookup-Token` | — |
+| POST | `/orders/{id}/seller-orders/{sellerOrderId}/cancel` | Cancel eligible seller order | Bearer or `X-Guest-Lookup-Token` | Customer/Guest owner |
 
 **POST /orders/checkout** (registered customer)
 Headers: `Idempotency-Key: <uuid>`
@@ -196,11 +218,37 @@ Headers: `Idempotency-Key: <uuid>`
   "couponCode": "SAVE10"
 }
 ```
+Response `201`:
+```json
+{
+  "customerOrderId": "order-uuid",
+  "status": "PENDING_PAYMENT",
+  "sellerOrders": [
+    {
+      "sellerOrderId": "so-uuid-1",
+      "sellerId": "seller-uuid-1",
+      "items": [
+        {
+          "orderItemId": "oi-uuid-1",
+          "productName": "Wireless Mouse",
+          "variantDescriptor": "Black",
+          "unitPrice": "24.99",
+          "quantity": 2
+        }
+      ],
+      "subtotal": "49.98"
+    }
+  ],
+  "totalAmount": "49.98"
+}
+```
+
 **POST /orders/checkout** (guest)
+Headers: `Idempotency-Key: <uuid>`, `X-Guest-Session: <session-token>`
 ```json
 {
   "guest": { "name": "Jane Doe", "email": "jane@example.com", "phone": "+1..." },
-  "shippingAddress": { "line1": "...", "city": "...", "region": "...", "postalCode": "...", "country": "EG" },
+  "shippingAddress": { "line1": "123 Main St", "city": "Metropolis", "region": "NY", "postalCode": "10001", "country": "US" },
   "paymentMethod": "COD"
 }
 ```
@@ -208,13 +256,43 @@ Response `201`:
 ```json
 {
   "customerOrderId": "order-uuid",
-  "status": "PENDING_PAYMENT",
+  "status": "PLACED",
+  "guestLookupToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
   "sellerOrders": [
-    { "sellerOrderId": "so-uuid-1", "sellerId": "seller-uuid-1", "items": [ { "productName": "Wireless Mouse", "variantDescriptor": "Black", "unitPrice": "24.99", "quantity": 2 } ], "subtotal": "49.98" }
+    {
+      "sellerOrderId": "so-uuid-1",
+      "sellerId": "seller-uuid-1",
+      "items": [
+        {
+          "orderItemId": "oi-uuid-1",
+          "productName": "Wireless Mouse",
+          "variantDescriptor": "Black",
+          "unitPrice": "24.99",
+          "quantity": 2
+        }
+      ],
+      "subtotal": "49.98"
+    }
   ],
   "totalAmount": "49.98"
 }
 ```
+
+**POST /orders/{id}/seller-orders/{sellerOrderId}/cancel**
+Request:
+```json
+{ "reason": "Item no longer needed" }
+```
+Response `200`:
+```json
+{
+  "sellerOrderId": "so-uuid-1",
+  "cancellationStatus": "CANCELLED",
+  "reason": "Item no longer needed",
+  "cancelledAt": "2026-09-09T22:00:00Z"
+}
+```
+
 Important business rules: stock and coupon validated atomically at commit; `409 INSUFFICIENT_STOCK` or `409 COUPON_LIMIT_REACHED` on conflict; repeated calls with the same `Idempotency-Key` return the original result.
 
 ### Seller Orders
@@ -225,12 +303,46 @@ Important business rules: stock and coupon validated atomically at commit; `409 
 | POST | `/seller/orders/{id}/ship` | Mark shipped (with tracking info) | Bearer | Seller (owner) |
 | POST | `/seller/orders/{id}/deliver` | Mark delivered | Bearer | Seller (owner) |
 
+**POST /seller/orders/{id}/ship**
+Request:
+```json
+{
+  "trackingNumber": "TRK-987654321",
+  "carrier": "DHL"
+}
+```
+Response `200`:
+```json
+{
+  "sellerOrderId": "so-uuid-1",
+  "fulfillmentStatus": "SHIPPED",
+  "trackingNumber": "TRK-987654321",
+  "shippedAt": "2026-09-09T22:00:00Z"
+}
+```
+
+**POST /seller/orders/{id}/deliver**
+Request:
+```json
+{
+  "notes": "Delivered and signed by recipient"
+}
+```
+Response `200`:
+```json
+{
+  "sellerOrderId": "so-uuid-1",
+  "fulfillmentStatus": "DELIVERED",
+  "deliveredAt": "2026-09-09T22:00:00Z"
+}
+```
+
 ### Payments
 | Method | Path | Purpose | Auth | Role |
 |---|---|---|---|---|
-| POST | `/orders/{id}/payments/intent` | Create online payment intent | Bearer/guest token | Customer/Guest owner |
+| POST | `/orders/{id}/payments/intent` | Create online payment intent | Bearer or `X-Guest-Lookup-Token` | Customer/Guest owner |
 | POST | `/webhooks/payments` | Provider webhook (payment confirmed/failed) | Provider signature | — |
-| GET | `/orders/{id}/payments` | View payment(s) for order | Bearer/guest token | Owner |
+| GET | `/orders/{id}/payments` | View payment(s) for order | Bearer or `X-Guest-Lookup-Token` | Owner |
 
 **POST /webhooks/payments**
 ```json
@@ -241,26 +353,75 @@ Response `200` always (even for duplicates); duplicate `providerEventId` is a no
 ### Refunds
 | Method | Path | Purpose | Auth | Role |
 |---|---|---|---|---|
-| GET | `/orders/{id}/refunds` | View refunds for an order | Bearer/guest token | Owner |
+| GET | `/orders/{id}/refunds` | View refunds for an order | Bearer or `X-Guest-Lookup-Token` | Owner |
 | POST | `/admin/refunds/{id}/reprocess` | Retry a failed refund | Bearer | Admin |
 
 ### Returns
 | Method | Path | Purpose | Auth | Role |
 |---|---|---|---|---|
-| POST | `/seller-orders/{id}/returns` | Request return | Bearer/guest token | Owner |
+| POST | `/seller-orders/{id}/returns` | Request return | Bearer or `X-Guest-Lookup-Token` | Owner |
 | GET | `/seller/returns` | List returns for seller's orders | Bearer | Seller |
 | POST | `/seller/returns/{id}/approve` | Approve return | Bearer | Seller (owner) or Admin |
 | POST | `/seller/returns/{id}/reject` | Reject return | Bearer | Seller (owner) or Admin |
 
 **POST /seller-orders/{id}/returns**
 ```json
-{ "items": [ { "orderItemId": "oi-uuid", "quantity": 1 } ], "reason": "Item arrived damaged" }
+{
+  "items": [
+    { "orderItemId": "oi-uuid-1", "quantity": 1 }
+  ],
+  "reason": "Item arrived damaged"
+}
+```
+Response `201`:
+```json
+{
+  "returnRequestId": "ret-uuid-1",
+  "sellerOrderId": "so-uuid-1",
+  "status": "PENDING",
+  "items": [
+    { "orderItemId": "oi-uuid-1", "quantity": 1 }
+  ],
+  "reason": "Item arrived damaged",
+  "requestedAt": "2026-09-09T22:00:00Z"
+}
+```
+
+**POST /seller/returns/{id}/approve**
+Request:
+```json
+{ "notes": "Items received in original box and inspected" }
+```
+Response `200`:
+```json
+{
+  "returnRequestId": "ret-uuid-1",
+  "status": "APPROVED",
+  "refundId": "ref-uuid-1",
+  "refundAmount": "24.99",
+  "decidedAt": "2026-09-09T22:00:00Z"
+}
+```
+
+**POST /seller/returns/{id}/reject**
+Request:
+```json
+{ "rejectionReason": "Item was opened and damaged after delivery" }
+```
+Response `200`:
+```json
+{
+  "returnRequestId": "ret-uuid-1",
+  "status": "REJECTED",
+  "rejectionReason": "Item was opened and damaged after delivery",
+  "decidedAt": "2026-09-09T22:00:00Z"
+}
 ```
 
 ### Shipping
 | Method | Path | Purpose | Auth | Role |
 |---|---|---|---|---|
-| GET | `/seller-orders/{id}/shipment` | View shipment status | Bearer/guest token | Owner |
+| GET | `/seller-orders/{id}/shipment` | View shipment status | Bearer or `X-Guest-Lookup-Token` | Owner |
 
 ### Coupons
 | Method | Path | Purpose | Auth | Role |
@@ -268,6 +429,18 @@ Response `200` always (even for duplicates); duplicate `providerEventId` is a no
 | GET | `/coupons/{code}/validate` | Check coupon validity (pre-checkout UX) | Optional | — |
 | POST | `/admin/coupons` | Create coupon | Bearer | Admin |
 | PATCH | `/admin/coupons/{id}` | Update/deactivate coupon | Bearer | Admin |
+
+**GET /coupons/{code}/validate**
+Response `200`:
+```json
+{
+  "valid": true,
+  "code": "SAVE10",
+  "discountType": "PERCENTAGE",
+  "discountValue": "10.00",
+  "expiresAt": "2026-12-31T23:59:59Z"
+}
+```
 
 **POST /admin/coupons**
 ```json
@@ -315,8 +488,37 @@ Response `409 INSUFFICIENT_BALANCE` if amount exceeds available balance.
 ### Admin Operations
 | Method | Path | Purpose | Auth | Role |
 |---|---|---|---|---|
+| GET | `/admin/users` | List platform users with filters | Bearer | Admin |
 | POST | `/admin/users/{id}/suspend` | Suspend user | Bearer | Admin |
 | POST | `/admin/users/{id}/reactivate` | Reactivate user | Bearer | Admin |
+| GET | `/admin/products` | List all products across sellers with moderation status filter | Bearer | Admin |
+| GET | `/admin/payouts` | List all payout requests (filterable by status) | Bearer | Admin |
 | GET | `/admin/return-policy` | View current return policy | Bearer | Admin |
 | PATCH | `/admin/return-policy` | Update return policy (window/eligibility) | Bearer | Admin |
 | GET | `/admin/overview` | Aggregated operational metrics | Bearer | Admin |
+
+**GET /admin/return-policy**
+Response `200`:
+```json
+{
+  \"returnWindowDays\": 14,
+  \"policyDescription\": \"Returns accepted within 14 calendar days of confirmed delivery.\"
+}
+```
+
+**PATCH /admin/return-policy**
+Request:
+```json
+{
+  \"returnWindowDays\": 30,
+  \"policyDescription\": \"Updated return window to 30 days for holiday season.\"
+}
+```
+Response `200`:
+```json
+{
+  \"returnWindowDays\": 30,
+  \"policyDescription\": \"Updated return window to 30 days for holiday season.\",
+  \"updatedAt\": \"2026-09-09T22:00:00Z\"
+}
+```

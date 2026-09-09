@@ -42,6 +42,9 @@ erDiagram
     SELLER_ORDERS ||--o| SHIPMENTS : has
     SELLER_ORDERS ||--o{ RETURN_REQUESTS : "may have"
 
+    RETURN_REQUESTS ||--|{ RETURN_REQUEST_ITEMS : contains
+    ORDER_ITEMS ||--o{ RETURN_REQUEST_ITEMS : "returned in"
+
     PAYMENTS ||--o{ REFUNDS : "may have"
     RETURN_REQUESTS ||--o| REFUNDS : "results in"
 
@@ -86,9 +89,11 @@ erDiagram
 
     SELLER_PROFILES {
         uuid id PK
-        uuid user_id FK UK
+        uuid user_id FK "unique - one seller profile per user"
         string status "ACTIVE|SUSPENDED"
         string display_name
+        string payout_method "BANK_TRANSFER|STRIPE|MANUAL"
+        text payout_details_json "structured account info"
         timestamp approved_at
     }
 
@@ -203,7 +208,7 @@ erDiagram
 
     SHIPMENTS {
         uuid id PK
-        uuid seller_order_id FK UK
+        uuid seller_order_id FK "unique - one shipment per seller order"
         string fulfillment_mode "MARKETPLACE|SELLER"
         string tracking_number "nullable"
         string status
@@ -218,6 +223,14 @@ erDiagram
         text reason
         timestamp requested_at
         timestamp decided_at
+    }
+
+    RETURN_REQUEST_ITEMS {
+        uuid id PK
+        uuid return_request_id FK
+        uuid order_item_id FK
+        int quantity
+        numeric refund_amount
     }
 
     COUPONS {
@@ -249,7 +262,7 @@ erDiagram
 
     WISHLISTS {
         uuid id PK
-        uuid user_id FK UK
+        uuid user_id FK "unique - one wishlist per user"
     }
 
     WISHLIST_ITEMS {
@@ -264,13 +277,17 @@ erDiagram
         string type
         string channel "IN_APP|EMAIL"
         boolean read
+        string delivery_status "PENDING|SENT|FAILED"
+        int retry_count
+        timestamp sent_at "nullable"
+        text error_message "nullable"
         text payload_json
         timestamp created_at
     }
 
     SELLER_BALANCES {
         uuid id PK
-        uuid seller_id FK UK
+        uuid seller_id FK "unique - one balance per seller"
         numeric available_balance
         int version "optimistic lock"
     }
@@ -300,6 +317,24 @@ erDiagram
         boolean revoked
         timestamp expires_at
     }
+
+    MARKETPLACE_SETTINGS {
+        string setting_key PK
+        string setting_value
+        string description
+        timestamp updated_at
+        uuid updated_by_admin_id FK
+    }
+
+    IDEMPOTENCY_RECORDS {
+        string idempotency_key PK
+        string endpoint
+        uuid user_id FK "nullable"
+        int response_status
+        text response_body
+        timestamp created_at
+        timestamp expires_at
+    }
 ```
 
 ## 2. Design Notes
@@ -316,13 +351,15 @@ All FKs enforce referential integrity except where a nullable FK is intentional 
 - `shipments.seller_order_id` unique (one Shipment per Seller Order).
 - `seller_balances.seller_id` unique (one balance ledger owner per Seller).
 - `wishlists.user_id` unique (one wishlist per Customer).
-- Recommended: unique `(user_id, product_id)` on `reviews` scoped additionally by `order_item_id` to allow one review per verified purchase.
+- `return_request_items(return_request_id, order_item_id)` unique (an order item is returned only once per request).
+- Recommended: unique `(user_id, product_id, order_item_id)` on `reviews` to ensure exactly one review per verified delivered purchase item.
 
 ### Check Constraints
 - `product_variants.stock_quantity >= 0`.
 - `coupons.redeemed_count <= coupons.usage_limit`.
 - `payouts.requested_amount <= seller_balances.available_balance` (enforced at application/transaction level, not purely DB check, due to cross-row nature).
 - `order_items.quantity > 0`, `payments.amount > 0`.
+- `return_request_items.quantity > 0`.
 
 ### Indexes
 - `products(seller_id)`, `products(status)` for seller/admin listing queries.
@@ -332,14 +369,26 @@ All FKs enforce referential integrity except where a nullable FK is intentional 
 - `customer_orders(user_id)`, `customer_orders(guest_email)`.
 - `seller_orders(seller_id)`, `seller_orders(customer_order_id)`.
 - `order_items(seller_order_id)`.
+- `return_request_items(return_request_id)`.
 - `ledger_entries(seller_balance_id)`.
 - `categories(parent_id)` for hierarchy traversal (with recursive CTEs).
+- `notifications(delivery_status, created_at)` for outbox poller queries.
+- `idempotency_records(expires_at)` for TTL cleanup jobs.
 
 ### Soft Deletion
 Used only where genuinely useful: `products.status = REMOVED` (soft) rather than hard-delete, because historical Order Items reference variant IDs and reviews reference products. Categories are hard-deleted only if unused; otherwise reassignment is required (assumption). Users/Sellers use a `status` flag (Suspended) rather than deletion, per business rule.
 
 ### Historical Data Preservation
 `order_items` stores denormalized snapshot columns (`product_name_snapshot`, `variant_descriptor_snapshot`, `unit_price_snapshot`) so edits to `products`/`product_variants` never retroactively change historical orders. The `variant_id` FK is kept only for traceability/analytics, not as the source of truth for display.
+
+### Partial Returns & Refunds
+`return_requests` represents the return request header, while `return_request_items` stores the individual order items and returned quantities. This permits partial order returns while maintaining granular traceability down to the specific `order_item_id` and corresponding refund amounts.
+
+### Outbox Pattern for Asynchronous Notifications
+`notifications` incorporates `delivery_status`, `retry_count`, `sent_at`, and `error_message`. When domain events occur within transactions (e.g., order placed, shipment updated), notification records are inserted atomically with `delivery_status = PENDING`. A decoupled asynchronous dispatcher/poller delivers emails and records completion or errors without compromising the triggering request thread.
+
+### Idempotency Records
+`idempotency_records` provides persistence for mutation idempotency across application restarts. The unique `idempotency_key` ensures that duplicate checkout submissions or financial transactions return the cached original response without creating duplicate entities or charges.
 
 ### Monetary Precision
 All monetary columns use `NUMERIC(12,2)` (or higher precision if multi-currency is later introduced) — never `FLOAT`/`DOUBLE`.

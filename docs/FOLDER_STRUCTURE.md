@@ -5,7 +5,7 @@ Reflects the modules defined in `ARCHITECTURE.md` §4. Organized by business mod
 ## 1. Repository Tree
 
 ```text
-marketplace/
+Vendora/
 ├── docs/
 │   ├── PRD.md
 │   ├── SRS.md
@@ -18,8 +18,8 @@ marketplace/
 │   └── FOLDER_STRUCTURE.md
 ├── src/
 │   ├── main/
-│   │   ├── java/com/marketplace/
-│   │   │   ├── MarketplaceApplication.java
+│   │   ├── java/com/omar/vendora/
+│   │   │   ├── VendoraApplication.java
 │   │   │   ├── common/
 │   │   │   ├── config/
 │   │   │   ├── security/
@@ -41,16 +41,16 @@ marketplace/
 │   │   │   ├── notifications/
 │   │   │   └── admin/
 │   │   └── resources/
-│   │       ├── application.yml
-│   │       ├── application-local.yml
+│   │       ├── application.yaml
+│   │       ├── application-dev.yml
 │   │       ├── application-prod.yml
 │   │       └── db/migration/          (Flyway SQL migrations)
 │   └── test/
-│       └── java/com/marketplace/
+│       └── java/com/omar/vendora/
 │           └── (mirrors main package structure)
 ├── .gitignore
-├── docker-compose.yml                 (introduced at the Deployment stage, see LEARN_BY_DOING)
-├── Dockerfile                         (introduced at the Deployment stage)
+├── docker-compose.yaml                 (PostgreSQL local dev container)
+├── .env.example                        (Environment variables template)
 ├── pom.xml
 └── README.md
 ```
@@ -88,7 +88,7 @@ catalog/
     └── ProductMapper.java
 ```
 
-Every module under `src/main/java/com/marketplace/` follows this same shape (`controller/`, `service/`, `domain/`, `repository/`, `dto/`, `mapper/`), with sub-packages only added when a module genuinely needs them (e.g., `inventory` needs a `locking/` or `concurrency/`-flavored service split once optimistic/atomic-update logic grows; most modules won't need that at MVP).
+Every module under `src/main/java/com/omar/vendora/` follows this same shape (`controller/`, `service/`, `domain/`, `repository/`, `dto/`, `mapper/`), with sub-packages only added when a module genuinely needs them (e.g., `inventory` needs a `locking/` or `concurrency/`-flavored service split once optimistic/atomic-update logic grows; most modules won't need that at MVP).
 
 Not every module needs every package on day one — e.g., `wishlist` may not need a `mapper/` package if its DTOs are trivial. Add packages when they earn their place, not preemptively.
 
@@ -109,9 +109,9 @@ Not every module needs every package on day one — e.g., `wishlist` may not nee
 | `promotions` | Coupon, CouponRedemption | Discount calculation, usage-limit enforcement | Order totals beyond discount amount | `ordering` |
 | `reviews` | Review | Verified-purchase validation, review CRUD | Order/purchase truth (only reads it) | `ordering`, `catalog` |
 | `wishlist` | Wishlist, WishlistItem | Customer-owned saved products | Product data itself | `catalog` |
-| `returns` | ReturnRequest | Return lifecycle, policy enforcement | Refund execution (delegates to `payments`) | `ordering`, `payments`, `inventory` |
+| `returns` | ReturnRequest, ReturnRequestItem | Return lifecycle, item-level return logic, policy enforcement | Refund execution (delegates to `payments`) | `ordering`, `payments`, `inventory` |
 | `finance` | SellerBalance, LedgerEntry, Payout | Commission calc, balance ledger, payout lifecycle | Payment capture itself | `payments`, `ordering`, `sellers` |
-| `notifications` | Notification | In-app storage, async email dispatch | Business logic that triggers events | all modules (consumer of domain events) |
+| `notifications` | Notification | In-app storage, async email dispatch, outbox delivery | Business logic that triggers events | all modules (consumer of domain events) |
 | `admin` | — (thin orchestration layer) | Cross-module admin endpoints (moderation, suspension, policy config) | Domain logic itself (delegates to owning module's service) | all modules |
 | `common` | Shared value objects, base exception types, pagination envelope | Cross-cutting utilities with no business logic | Anything module-specific | all modules (one-directional: everyone depends on `common`, `common` depends on nothing) |
 | `config` | Spring configuration beans | Security config, web config, async executor config, OpenAPI config | Business logic | all modules |
@@ -159,12 +159,12 @@ This mirrors the module graph in `ARCHITECTURE.md` §4 exactly — if a dependen
 ## 6. Testing Structure
 
 ```text
-src/test/java/com/marketplace/
+src/test/java/com/omar/vendora/
 ├── catalog/
 │   ├── ProductServiceTest.java              (unit)
 │   └── ProductControllerIT.java             (integration, @SpringBootTest + Testcontainers)
 ├── inventory/
-│   ├── StockUpdateConcurrencyTest.java       (concurrency-focused integration test)
+│   └── StockUpdateConcurrencyTest.java       (concurrency-focused integration test)
 ├── ordering/
 │   ├── CheckoutServiceTest.java
 │   └── CheckoutFlowIT.java
@@ -183,18 +183,18 @@ Rules:
 
 ```text
 src/main/resources/
-├── application.yml           (shared defaults: pagination, JWT TTLs, commission config key)
-├── application-local.yml     (local Postgres connection, verbose logging)
-├── application-prod.yml      (prod datasource via env vars, log level)
+├── application.yaml           (shared defaults: pagination, JWT TTLs, commission config key)
+├── application-dev.yml        (local/dev Postgres connection with fallback defaults)
+├── application-prod.yml       (prod datasource via env vars, strict settings)
 └── db/migration/
-    ├── V1__init_users_and_auth.sql
+    ├── V1__init.sql
     ├── V2__init_sellers.sql
     ├── V3__init_catalog.sql
     ├── V4__init_inventory_indexes.sql
     ├── V5__init_cart.sql
     ├── V6__init_orders.sql
     ├── V7__init_payments.sql
-    ├── ...
+    └── ...
 ```
 Flyway (or an equivalent SQL migration tool) is introduced from the very first feature (User Registration) rather than relying on Hibernate auto-DDL, because migrations are how the ERD's constraints/indexes actually get created and versioned — this isn't a "later" concern.
 
