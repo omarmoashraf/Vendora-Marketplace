@@ -1,7 +1,9 @@
 package com.omar.vendora.users.service;
 
 import com.omar.vendora.common.exception.EmailAlreadyExistsException;
+import com.omar.vendora.common.exception.UserNotFoundException;
 import com.omar.vendora.users.domain.User;
+import com.omar.vendora.users.dto.UpdateProfileRequest;
 import com.omar.vendora.users.dto.UserAuthDto;
 import com.omar.vendora.users.dto.UserDto;
 import com.omar.vendora.users.repository.UserRepository;
@@ -38,20 +40,35 @@ public class UserServiceImpl implements UserService {
 
         try {
             User savedUser = userRepository.save(user);
-            return new UserDto(
-                savedUser.getId(),
-                savedUser.getEmail(),
-                savedUser.getFullName(),
-                savedUser.getPhone(),
-                savedUser.getStatus().name(),
-                savedUser.isAdmin(),
-                savedUser.isCustomer(),
-                savedUser.isSeller(),
-                savedUser.getCreatedAt()
-            );
+            return toDto(savedUser);
         } catch (DataIntegrityViolationException ex) {
             throw new EmailAlreadyExistsException(email);
         }
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public UserDto getUserById(UUID id) {
+        return userRepository.findById(id)
+            .map(this::toDto)
+            .orElseThrow(() -> new UserNotFoundException(id));
+    }
+
+    @Override
+    @Transactional
+    public UserDto updateProfile(UUID userId, UpdateProfileRequest request) {
+        User user = userRepository.findById(userId)
+            .orElseThrow(() -> new UserNotFoundException(userId));
+
+        if (request.fullName() != null) {
+            user.setFullName(request.fullName());
+        }
+        if (request.phone() != null) {
+            user.setPhone(request.phone());
+        }
+
+        User updatedUser = userRepository.save(user);
+        return toDto(updatedUser);
     }
 
     @Override
@@ -82,5 +99,19 @@ public class UserServiceImpl implements UserService {
                 user.isCustomer(),
                 user.isSeller()
             ));
+    }
+
+    private UserDto toDto(User user) {
+        return new UserDto(
+            user.getId(),
+            user.getEmail(),
+            user.getFullName(),
+            user.getPhone(),
+            user.getStatus().name(),
+            user.isAdmin(),
+            user.isCustomer(),
+            user.isSeller(),
+            user.getCreatedAt()
+        );
     }
 }
