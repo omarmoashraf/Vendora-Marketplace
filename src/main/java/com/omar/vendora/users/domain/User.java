@@ -1,5 +1,6 @@
 package com.omar.vendora.users.domain;
 
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -7,9 +8,12 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 @Entity
@@ -47,6 +51,9 @@ public class User {
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
+
+    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<Address> addresses = new ArrayList<>();
 
     public User() {
     }
@@ -150,5 +157,23 @@ public class User {
 
     public void setCreatedAt(Instant createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public List<Address> getAddresses() {
+        return addresses;
+    }
+
+    public void setAddresses(List<Address> addresses) {
+        this.addresses = addresses;
+    }
+
+    public void addAddress(Address address) {
+        addresses.add(address);
+        address.setUser(this);
+    }
+
+    public void removeAddress(Address address) {
+        addresses.remove(address);
+        address.setUser(null);
     }
 }

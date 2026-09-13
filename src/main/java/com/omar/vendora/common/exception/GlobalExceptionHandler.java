@@ -95,6 +95,32 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
     }
 
+    @ExceptionHandler(UserNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleUserNotFoundException(UserNotFoundException ex) {
+        String correlationId = UUID.randomUUID().toString();
+        ErrorResponse response = ErrorResponse.of(
+            "USER_NOT_FOUND",
+            ex.getMessage(),
+            List.of(),
+            correlationId
+        );
+
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+    }
+
+    @ExceptionHandler(AddressNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleAddressNotFoundException(AddressNotFoundException ex) {
+        String correlationId = UUID.randomUUID().toString();
+        ErrorResponse response = ErrorResponse.of(
+            "ADDRESS_NOT_FOUND",
+            ex.getMessage(),
+            List.of(),
+            correlationId
+        );
+
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+    }
+
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<ErrorResponse> handleDataIntegrityViolationException(DataIntegrityViolationException ex) {
         String correlationId = UUID.randomUUID().toString();
