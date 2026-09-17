@@ -95,6 +95,71 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
     }
 
+    @ExceptionHandler(SellerApplicationAlreadyPendingException.class)
+    public ResponseEntity<ErrorResponse> handleSellerApplicationAlreadyPendingException(SellerApplicationAlreadyPendingException ex) {
+        String correlationId = UUID.randomUUID().toString();
+        ErrorResponse response = ErrorResponse.of(
+            "SELLER_APPLICATION_ALREADY_PENDING",
+            ex.getMessage(),
+            List.of(),
+            correlationId
+        );
+
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+    }
+
+    @ExceptionHandler(SellerApplicationAlreadyDecidedException.class)
+    public ResponseEntity<ErrorResponse> handleSellerApplicationAlreadyDecidedException(SellerApplicationAlreadyDecidedException ex) {
+        String correlationId = UUID.randomUUID().toString();
+        ErrorResponse response = ErrorResponse.of(
+            "SELLER_APPLICATION_ALREADY_DECIDED",
+            ex.getMessage(),
+            List.of(),
+            correlationId
+        );
+
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+    }
+
+    @ExceptionHandler(IllegalStateException.class)
+    public ResponseEntity<ErrorResponse> handleIllegalStateException(IllegalStateException ex) {
+        String correlationId = UUID.randomUUID().toString();
+        ErrorResponse response = ErrorResponse.of(
+            "INVALID_STATE_TRANSITION",
+            ex.getMessage(),
+            List.of(),
+            correlationId
+        );
+
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+    }
+
+    @ExceptionHandler(SellerApplicationNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleSellerApplicationNotFoundException(SellerApplicationNotFoundException ex) {
+        String correlationId = UUID.randomUUID().toString();
+        ErrorResponse response = ErrorResponse.of(
+            "SELLER_APPLICATION_NOT_FOUND",
+            ex.getMessage(),
+            List.of(),
+            correlationId
+        );
+
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+    }
+
+    @ExceptionHandler(SellerNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleSellerNotFoundException(SellerNotFoundException ex) {
+        String correlationId = UUID.randomUUID().toString();
+        ErrorResponse response = ErrorResponse.of(
+            "SELLER_NOT_FOUND",
+            ex.getMessage(),
+            List.of(),
+            correlationId
+        );
+
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+    }
+
     @ExceptionHandler(UserNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleUserNotFoundException(UserNotFoundException ex) {
         String correlationId = UUID.randomUUID().toString();
